@@ -1,6 +1,6 @@
 import java.awt.Dimension;
-import java.util.HashSet;
-import java.util.Set;
+import java.util.TreeSet;
+import java.util.SortedSet;
 
 import javax.swing.JFrame;
 import javax.swing.WindowConstants;
@@ -31,42 +31,44 @@ public class Tree {
 
 	public void evolve(Rational amount){
 		
-		Set<RationalAndNode> ran = new HashSet<RationalAndNode>();
-		Rational transAmount;
+		SortedSet<Node> transNodes = new TreeSet<Node>();
 		Rational amountRemainder = amount;
-		Node transNode;
+		Rational updateAmount;
+		Rational transAmount;
 		
 		do {
-			ran = getTransitions(amountRemainder);
-			transAmount = ran.getRational();
-			transNode = ran.getNode();
-			
-			//Update the weights
-			for (Node node : tree.vertexSet()) {
-				Rational weight = node.getWeight();
-				Rational rate = node.getRate();
-				node.setWeight(weight.add(rate.multiply(transAmount)));
-			}
-			
-			//Check if this will cause node addition/removal 
-			Rational tnwBefore = transNode.getWeight();
-			Rational tnwAfter = tnwBefore.add(transAmount);
-			Rational intDiff = tnwAfter.getAbsoluteValue().getFloor().minus(tnwBefore.getAbsoluteValue().getFloor());
-			
-			if ( !intDiff.equals(ZERO) ) {
-				// integer threshold reached for some node so need to add/remove node
+			transNodes = getTransitionNodes(amountRemainder);
+
+			if ( updateAmount(transNodes.first()).compareTo(amountRemainder) > 0 ) {
 				
-				assert transNode.getWeight().getFractionalPart().equals(ZERO) : " New parent node weight must be an integer multiple";
+				// Not enough remaining amount to reach a transition
+				// Split amount between nodes, proportionate to growth rate
+				Rational unitAmount = amountRemainder.multiply(getRateSum().getReciprocal());
+				updateAmount = updateNodes(unitAmount);
 				
-				// check if transNode is a leaf node and remove it if zero weight, else add new node
-				if ( tree.edgesOf(transNode).size() == 1 && transNode.getWeight().equals(ZERO) ) {
-					removeLeafNode(transNode);
-				} else 
-					addLeafNode(transNode);
+				assert updateAmount.equals(amount) : " Non-transition update amount should be the same as the full amount"; 
 				
-				amountRemainder = amountRemainder.minus(transAmount);
+			} else {
+				
+				// update nodes and add/remove nodes at transitions
+				Node firstTransNode = transNodes.first();
+				transAmount = ( amount.isPositive() ) ? firstTransNode.getPosTransitionAmount() : firstTransNode.getNegTransitionAmount();
+				updateAmount = updateNodes(transAmount);
+				
+				// Handle node addition/removal
+				for ( Node transNode : transNodes ) {
+						
+					assert transNode.getWeight().getFractionalPart().equals(ZERO) : " New parent node weight must be an integer multiple";
 					
-			} 
+					// check if transNode is a leaf node and remove it if zero weight, else add new node
+					if ( tree.edgesOf(transNode).size() == 1 && transNode.getWeight().equals(ZERO) ) {
+						removeLeafNode(transNode);
+					} else 
+						addLeafNode(transNode);
+				} 
+				amountRemainder = amountRemainder.minus(updateAmount);
+			}
+				
 		} while ( amountRemainder.compareTo(ZERO) > 0 );
 	}
 	
@@ -74,35 +76,78 @@ public class Tree {
 		
 	}
 	
+	// Calculate transition amounts
 	// Find the max amount which can be added before one or more leaf vertices are added or removed
 	
-	private Set<RationalAndNode> getTransitions(Rational amount) {
+	private SortedSet<Node> getTransitionNodes(Rational amount) {
 		
-		Rational transAmount = ONE;
-		Node transNode = root;
-		Rational minAmount = ZERO;
+		SortedSet<Node> transitionNodes = new TreeSet<Node>();
+		Rational minAmt = ONE;
 		
+		assert !amount.equals(ZERO)  : " Amount must be non-zero";
+		
+		// Find minimum
 		for (Node node : tree.vertexSet()) {
-			Rational weight = node.getWeight();
-			Rational rate = node.getRate();
-			if (weight.getFractionalPart().equals(ZERO)) {
-				minAmount = ONE;
-			} else if ( amount.isPositive() ) {
-				minAmount = weight.getCeil().minus(weight);
-				minAmount = minAmount.multiply(rate.getReciprocal());
+			Rational posTransAmt = node.getPosTransitionAmount();
+			Rational negTransAmt = node.getNegTransitionAmount();
+			
+			if ( amount.isPositive() ) {
+				minAmt = ( posTransAmt.compareTo(minAmt) < 0 ) ? posTransAmt : minAmt;
 			} else {
-				minAmount = weight.getFloor().add(weight);
-				minAmount = minAmount.multiply(rate.getReciprocal());
-			}
-			if ( minAmount.compareTo(transAmount) < 0 ) {
-				transAmount = minAmount;
-				transNode = node;
+				minAmt = ( negTransAmt.compareTo(minAmt) < 0 ) ? negTransAmt : minAmt;
 			}
 		}
-		// Split amount between nodes, proportionate to growth rate
-		Rational unitAmount = amount.multiply(getRateSum().getReciprocal());
-		Rational returnedAmount = ( unitAmount.compareTo(transAmount) < 0 ) ? unitAmount : transAmount;
-		return new RationalAndNode(returnedAmount, transNode);
+		// Find all nodes having minimum
+		for (Node node : tree.vertexSet()) {
+			if ( amount.isPositive() && node.getPosTransitionAmount().equals(minAmt) || !amount.isPositive() && node.getNegTransitionAmount().equals(minAmt) ) {
+				transitionNodes.add(node);
+			} 
+		}
+		return transitionNodes;
+	}
+	
+	private Rational updateNodes(Rational amount) {
+		
+		Rational updateAmount = ZERO;
+		
+		//Update the weights and transition amounts
+		for (Node node : tree.vertexSet()) {
+			// add weights
+			Rational weight = node.getWeight();
+			Rational rate = node.getRate();
+			Rational increment = rate.multiply(amount);
+			Rational newWeight = weight.add(increment);
+			
+			assert !( weight.getAbsoluteValue().getFloor().compareTo(newWeight.getAbsoluteValue().getFloor()) < 0 && !newWeight.getFractionalPart().equals(ZERO) )  
+			: " updated node weight should not have crossed integer transition";
+			
+			node.setWeight(newWeight);
+			updateAmount = updateAmount.add(increment);
+			
+			//update transition amounts
+			if ( newWeight.getFractionalPart().equals(ZERO) ) {
+				node.setPosTransitionAmount(ONE);
+				node.setNegTransitionAmount(ZERO);
+			} else {
+				node.setPosTransitionAmount(newWeight.getCeil().minus(newWeight).multiply(rate.getReciprocal()));
+				node.setNegTransitionAmount(newWeight.getFloor().add(newWeight).multiply(rate.getReciprocal()));
+			}
+		}
+		return updateAmount;
+	}
+	
+	// Calculates total tree update amount needed for reaching transition
+	private Rational updateAmount(Node transNode) {
+		
+		Rational updateAmount = ZERO;
+		Rational scalingFactor = transNode.getWeight().multiply(transNode.getRate().getReciprocal());
+		for (Node node : tree.vertexSet()) {
+			// add scaled amounts
+			Rational rate = node.getRate();
+			Rational increment = rate.multiply(scalingFactor);
+			updateAmount = updateAmount.add(increment);
+		}
+		return updateAmount;
 	}
 	
 	private Rational getRateSum() {
@@ -141,7 +186,7 @@ public class Tree {
             .layoutAlgorithm(new KKLayoutAlgorithm<>())
             .build();
     
-		vv.getRenderContext().setVertexLabelFunction(v -> v.toString());
+		vv.getRenderContext().setVertexLabelFunction(v -> v.getWeight().toString());
 
 	    // create a frame to hold the graph visualization
 	    final JFrame frame = new JFrame();
@@ -151,22 +196,4 @@ public class Tree {
 	    frame.setVisible(true);
 	}
 	
-	class RationalAndNode {
-		
-		private Rational rational;
-		private Node node;
-		
-		public RationalAndNode(Rational rational, Node node) {
-			this.rational = rational;
-			this.node = node;
-		}
-
-		public Rational getRational() {
-			return rational;
-		}
-
-		public Node getNode() {
-			return node;
-		}
-	}
 }

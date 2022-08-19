@@ -39,16 +39,7 @@ public class Tree {
 		do {
 			transNodes = getTransitionNodes(amountRemainder);
 
-			if ( updateAmount(transNodes.first()).compareTo(amountRemainder) > 0 ) {
-				
-				// Not enough remaining amount to reach a transition
-				// Split amount between nodes, proportionate to growth rate
-				Rational unitAmount = amountRemainder.multiply(getRateSum().getReciprocal());
-				updateAmount = updateNodes(unitAmount);
-				
-				assert updateAmount.equals(amount) : " Non-transition update amount should be the same as the full amount"; 
-				
-			} else {
+			if ( updateAmount(transNodes.first()).compareTo(amountRemainder) < 0 ) {
 				
 				// update nodes and add/remove nodes at transitions
 				Node firstTransNode = transNodes.first();
@@ -66,15 +57,30 @@ public class Tree {
 					} else 
 						addLeafNode(transNode);
 				} 
-				amountRemainder = amountRemainder.minus(updateAmount);
+				
+			} else {
+				
+				// Not enough remaining amount to reach a transition
+				// Split amount between nodes, proportionate to growth rate
+				Rational unitAmount = amountRemainder.multiply(getRateSum().getReciprocal());
+				updateAmount = updateNodes(unitAmount);
+				
+				assert updateAmount.equals(amountRemainder) : " Non-transition update amount should be the same as the full amount"; 
 			}
+			
+			amountRemainder = amountRemainder.minus(updateAmount);
 				
 		} while ( amountRemainder.compareTo(ZERO) > 0 );
 	}
 	
-	public void evolve(Structor structor) {
-		
-	}
+//	public void evolve(Structor structor) {
+//		
+//		Rational rate = structor.getRate();
+//		Rational magnitude = structor.getMagnitude();
+//		
+//		
+//		
+//	}
 	
 	// Calculate transition amounts
 	// Find the max amount which can be added before one or more leaf vertices are added or removed

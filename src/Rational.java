@@ -5,6 +5,10 @@ public class Rational implements Comparable<Rational>{
 	private long numerator = 0;
 	private long denominator = 1;
 	
+	public static final Rational ZERO = new Rational(0,1);
+	public static final Rational ONE = new Rational(1,1);
+	public static final Rational MINUS_ONE = new Rational(-1,1);
+	
 	public Rational(long numerator, long denominator) {
 		
 		if (denominator == 0) {
@@ -68,14 +72,25 @@ public class Rational implements Comparable<Rational>{
 		long b = denominator;
 		long c = other.getNumerator();
 		long d = other.getDenominator();
-		return new Rational(Math.abs(a*d  -  b*c), b*d).getReduced();
+		return new Rational(a*d  -  b*c, b*d).getReduced();
 	}
 	
-	public boolean isPositive() {
-		boolean isPos = true;
-		if (numerator < 0 && denominator > 0 || numerator > 0 && denominator < 0)
-			isPos = false;
-		return isPos;
+	public Rational power(int power) {
+		Rational result = ONE;
+		if ( power == 0 )
+			return result;
+		
+		for (int i=0; i < Math.abs(power); i++) {
+			result = result.multiply(this);
+		}
+		if ( power < 0 )
+			result = result.getReciprocal();
+		
+		return result;
+	}
+	
+	public Rational negative() {
+		return this.multiply(MINUS_ONE);
 	}
 	
 	public Rational getIntegerPart() {
@@ -89,9 +104,8 @@ public class Rational implements Comparable<Rational>{
 	
 	public Rational getAbsoluteValue() {
 		Rational abs = this.clone();
-		Rational minusOne = new Rational(-1,1);
-		if ( !this.isPositive() ) 
-			abs = abs.multiply(minusOne);
+		if ( this.lessThan(ZERO) ) 
+			abs = abs.multiply(MINUS_ONE);
 		return abs;
 	}
 	
@@ -103,10 +117,10 @@ public class Rational implements Comparable<Rational>{
 	}
 	
 	public Rational getCeil() {
-		Rational ceil = new Rational(0,1);
+		Rational ceil = ZERO.clone();
 		long intPart = numerator / denominator;
 		long fracPart = numerator % denominator;
-		if ( fracPart == 0 || !this.isPositive() )
+		if ( fracPart == 0 || this.lessThan(ZERO) )
 			ceil.setNumerator(intPart);
 		else 
 			ceil.setNumerator(intPart + 1);
@@ -114,10 +128,10 @@ public class Rational implements Comparable<Rational>{
 	}
 	
 	public Rational getFloor() {
-		Rational floor = new Rational(0,1);
+		Rational floor = ZERO.clone();
 		long intPart = numerator / denominator;
 		long fracPart = numerator % denominator;
-		if ( fracPart == 0 || this.isPositive() )
+		if ( fracPart == 0 || this.greaterThan(ZERO) )
 			floor.setNumerator(intPart);
 		else 
 			floor.setNumerator(intPart - 1);
@@ -129,6 +143,34 @@ public class Rational implements Comparable<Rational>{
 		BigInteger d = BigInteger.valueOf(denominator);
 		BigInteger gcd = n.gcd(d);
 		return new Rational(n.divide(gcd).longValue(), d.divide(gcd).longValue());
+	}
+	
+	public boolean lessThan(Rational other) {
+		boolean result = false;
+		if ( this.compareTo(other) < 0 )
+			result = true;
+		return result;
+	}
+	
+	public boolean lessThanOrEqual(Rational other) {
+		boolean result = false;
+		if ( this.compareTo(other) <= 0 )
+			result = true;
+		return result;
+	}
+	
+	public boolean greaterThan(Rational other) {
+		boolean result = false;
+		if ( this.compareTo(other) > 0 )
+			result = true;
+		return result;
+	}
+	
+	public boolean greaterThanOrEqual(Rational other) {
+		boolean result = false;
+		if ( this.compareTo(other) >= 0 )
+			result = true;
+		return result;
 	}
 	
 	public Rational clone() {

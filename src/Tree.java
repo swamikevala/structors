@@ -14,22 +14,30 @@ import org.jungrapht.visualization.layout.algorithms.KKLayoutAlgorithm;
 public class Tree {
 	
 	private int nextId;
-	private Rational rate;
+	private Rational rate; // current rate (tree rate can change for compound structors) 
 	private Graph<Node, DefaultEdge> tree;
 	private Node root;
-	
-	private static final Rational ZERO = new Rational(0,1);
-	private static final Rational ONE = new Rational(1,1);
 	
 	public Tree(Rational rate) {
 		this.rate = rate;
 		tree = new DefaultUndirectedGraph<Node, DefaultEdge>(DefaultEdge.class);
-		root = new Node(1, ONE, ZERO);
+		root = new Node(this);
 		tree.addVertex(root);
 		nextId = 2;
 	}
 
-	public void evolve(Rational amount){
+	public void evolve(Rational amount) {
+		evolve(this.rate, amount);
+	}
+	
+	public void evolve(Structor structor) {
+		evolve(structor.getRate(), structor.getMagnitude());
+	}
+	
+	public void evolve(Rational newRate, Rational amount){
+		
+		if ( !rate.equals(newRate) )
+			updateTree(newRate);
 		
 		SortedSet<Node> transNodes = new TreeSet<Node>();
 		Rational amountRemainder = amount;
@@ -39,20 +47,20 @@ public class Tree {
 		do {
 			transNodes = getTransitionNodes(amountRemainder);
 
-			if ( updateAmount(transNodes.first()).compareTo(amountRemainder) < 0 ) {
+			if ( updateAmount(transNodes.first()).getAbsoluteValue().lessThan(amountRemainder.getAbsoluteValue()) ) {
 				
 				// update nodes and add/remove nodes at transitions
 				Node firstTransNode = transNodes.first();
-				transAmount = ( amount.isPositive() ) ? firstTransNode.getPosTransitionAmount() : firstTransNode.getNegTransitionAmount();
+				transAmount = ( amount.greaterThan(Rational.ZERO) ) ? firstTransNode.getPosTransitionAmount() : firstTransNode.getNegTransitionAmount();
 				updateAmount = updateNodes(transAmount);
 				
 				// Handle node addition/removal
 				for ( Node transNode : transNodes ) {
 						
-					assert transNode.getWeight().getFractionalPart().equals(ZERO) : " New parent node weight must be an integer multiple";
+					assert transNode.getWeight().getFractionalPart().equals(Rational.ZERO) : " New parent node weight must be an integer multiple";
 					
 					// check if transNode is a leaf node and remove it if zero weight, else add new node
-					if ( tree.edgesOf(transNode).size() == 1 && transNode.getWeight().equals(ZERO) ) {
+					if ( tree.edgesOf(transNode).size() == 1 && transNode.getWeight().equals(Rational.ZERO) ) {
 						removeLeafNode(transNode);
 					} else 
 						addLeafNode(transNode);
@@ -70,17 +78,8 @@ public class Tree {
 			
 			amountRemainder = amountRemainder.minus(updateAmount);
 				
-		} while ( amountRemainder.compareTo(ZERO) > 0 );
+		} while ( !amountRemainder.equals(Rational.ZERO) );
 	}
-	
-//	public void evolve(Structor structor) {
-//		
-//		Rational rate = structor.getRate();
-//		Rational magnitude = structor.getMagnitude();
-//		
-//		
-//		
-//	}
 	
 	// Calculate transition amounts
 	// Find the max amount which can be added before one or more leaf vertices are added or removed
@@ -88,24 +87,25 @@ public class Tree {
 	private SortedSet<Node> getTransitionNodes(Rational amount) {
 		
 		SortedSet<Node> transitionNodes = new TreeSet<Node>();
-		Rational minAmt = ONE;
+		Rational smallestAmt = ( amount.greaterThan(Rational.ZERO) ) ? Rational.ONE : Rational.MINUS_ONE;
 		
-		assert !amount.equals(ZERO)  : " Amount must be non-zero";
+		assert !amount.equals(Rational.ZERO)  : " Amount must be non-zero";
 		
-		// Find minimum
+		// Find smallest
 		for (Node node : tree.vertexSet()) {
 			Rational posTransAmt = node.getPosTransitionAmount();
 			Rational negTransAmt = node.getNegTransitionAmount();
 			
-			if ( amount.isPositive() ) {
-				minAmt = ( posTransAmt.compareTo(minAmt) < 0 ) ? posTransAmt : minAmt;
+			if ( amount.greaterThan(Rational.ZERO) ) {
+				smallestAmt = ( posTransAmt.lessThanOrEqual(smallestAmt) ) ? posTransAmt : smallestAmt;
 			} else {
-				minAmt = ( negTransAmt.compareTo(minAmt) < 0 ) ? negTransAmt : minAmt;
+				smallestAmt = ( negTransAmt.greaterThanOrEqual(smallestAmt) ) ? negTransAmt : smallestAmt;
 			}
 		}
 		// Find all nodes having minimum
 		for (Node node : tree.vertexSet()) {
-			if ( amount.isPositive() && node.getPosTransitionAmount().equals(minAmt) || !amount.isPositive() && node.getNegTransitionAmount().equals(minAmt) ) {
+			if ( amount.greaterThan(Rational.ZERO) && node.getPosTransitionAmount().equals(smallestAmt) 
+					|| amount.lessThan(Rational.ZERO) && node.getNegTransitionAmount().equals(smallestAmt) ) {
 				transitionNodes.add(node);
 			} 
 		}
@@ -114,7 +114,7 @@ public class Tree {
 	
 	private Rational updateNodes(Rational amount) {
 		
-		Rational updateAmount = ZERO;
+		Rational updateAmount = Rational.ZERO;
 		
 		//Update the weights and transition amounts
 		for (Node node : tree.vertexSet()) {
@@ -124,20 +124,14 @@ public class Tree {
 			Rational increment = rate.multiply(amount);
 			Rational newWeight = weight.add(increment);
 			
-			assert !( weight.getAbsoluteValue().getFloor().compareTo(newWeight.getAbsoluteValue().getFloor()) < 0 && !newWeight.getFractionalPart().equals(ZERO) )  
+			assert !( weight.getAbsoluteValue().getFloor().lessThan(newWeight.getAbsoluteValue().getFloor()) && !newWeight.getFractionalPart().equals(Rational.ZERO) )  
 			: " updated node weight should not have crossed integer transition";
 			
 			node.setWeight(newWeight);
 			updateAmount = updateAmount.add(increment);
 			
 			//update transition amounts
-			if ( newWeight.getFractionalPart().equals(ZERO) ) {
-				node.setPosTransitionAmount(ONE);
-				node.setNegTransitionAmount(ZERO);
-			} else {
-				node.setPosTransitionAmount(newWeight.getCeil().minus(newWeight).multiply(rate.getReciprocal()));
-				node.setNegTransitionAmount(newWeight.getFloor().add(newWeight).multiply(rate.getReciprocal()));
-			}
+			updateTransitionAmounts(node);
 		}
 		return updateAmount;
 	}
@@ -145,7 +139,7 @@ public class Tree {
 	// Calculates total tree update amount needed for reaching transition
 	private Rational updateAmount(Node transNode) {
 		
-		Rational updateAmount = ZERO;
+		Rational updateAmount = Rational.ZERO;
 		Rational scalingFactor = transNode.getWeight().multiply(transNode.getRate().getReciprocal());
 		for (Node node : tree.vertexSet()) {
 			// add scaled amounts
@@ -157,7 +151,7 @@ public class Tree {
 	}
 	
 	private Rational getRateSum() {
-		Rational rateSum = ZERO;
+		Rational rateSum = Rational.ZERO;
 		for (Node node : tree.vertexSet()) {
 			Rational rate = node.getRate();
 			rateSum = rateSum.add(rate);
@@ -166,8 +160,7 @@ public class Tree {
 	}
 	
 	private void addLeafNode(Node parent) {
-		Rational childRate = this.rate.multiply(parent.getRate());
-		Node child = new Node(nextId, childRate, ZERO);
+		Node child = new Node(this, parent);
 		tree.addVertex(child);
 		tree.addEdge(parent, child);
 		nextId++;
@@ -177,6 +170,41 @@ public class Tree {
 		tree.removeVertex(node);
 	}
 	
+	private void updateTree(Rational newRate) {
+		
+		//Update the rates and transition amounts
+		for (Node node : tree.vertexSet()) {
+			// update rates
+			int depth = node.getDepth();
+			Rational newNodeRate = newRate.power(depth);
+			node.setRate(newNodeRate);
+			
+			//update transition amounts
+			updateTransitionAmounts(node);
+		}
+	}
+	
+	private void updateTransitionAmounts(Node node) {
+		
+		Rational weight = node.getWeight();
+		Rational rate = node.getRate();
+		if ( weight.getFractionalPart().equals(Rational.ZERO) ) {
+			node.setPosTransitionAmount(rate.getReciprocal());
+			node.setNegTransitionAmount(rate.getReciprocal().negative());
+		} else {
+			node.setPosTransitionAmount(weight.getCeil().minus(weight).multiply(rate.getReciprocal()));
+			node.setNegTransitionAmount(weight.getFloor().minus(weight).multiply(rate.getReciprocal()));
+		}
+	}
+	
+	public int getNextId() {
+		return this.nextId;
+	}
+	
+	public Rational getRate() {
+		return this.rate;
+	}
+	
 	public Graph<Node, DefaultEdge> getTree() {
 		return tree;
 	}
@@ -184,6 +212,7 @@ public class Tree {
 	public void setTree(Graph<Node, DefaultEdge> tree) {
 		this.tree = tree;
 	}
+	
 	
 	public void draw() {
 		VisualizationViewer<Node, DefaultEdge> vv =

@@ -1,27 +1,41 @@
 public class Node implements Comparable<Node>{
 	
 	private int id;
+	private Tree tree;
+	private int depth;
 	private Rational rate;
 	private Rational weight;
 	private Rational posTransitionAmount;
 	private Rational negTransitionAmount;
 	
-	public Node(int id, Rational rate, Rational weight) {
-		this.id = id;
-		this.rate = rate;
-		this.weight = weight;
+	public Node(Tree tree) {
+		this.id = 1;
+		this.depth = 0;
+		this.rate = Rational.ONE;
+		init();
+	}
+	
+	public Node(Tree tree, Node parent) {
+		this.id = tree.getNextId();
+		this.depth = parent.getDepth() + 1;
+		this.rate = parent.getRate().multiply(tree.getRate());
+		init();
+	}
+	
+	private void init() {
+		this.weight = Rational.ZERO;
 		this.posTransitionAmount = rate.getReciprocal();
-		this.negTransitionAmount = new Rational(0,1);
+		this.negTransitionAmount = rate.getReciprocal().negative();
 	}
 
 	public int getId() {
 		return id;
 	}
 
-	public void setId(int id) {
-		this.id = id;
+	public int getDepth() {
+		return depth;
 	}
-
+	
 	public Rational getRate() {
 		return rate;
 	}

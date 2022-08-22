@@ -1,5 +1,7 @@
 import java.awt.Dimension;
 import java.util.TreeSet;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.SortedSet;
 
 import javax.swing.JFrame;
@@ -14,61 +16,73 @@ import org.jungrapht.visualization.layout.algorithms.KKLayoutAlgorithm;
 public class Tree {
 	
 	private int nextId;
-	private Rational rate; // current rate (tree rate can change for compound structors) 
+	private Rational currentRate; // current rate (tree rate can change for compound structors) 
+	private Rational currentMagnitude; // total amount (magnitude) tree needs to evolve by
 	private Graph<Node, DefaultEdge> tree;
 	private Node root;
 	
 	public Tree(Rational rate) {
-		this.rate = rate;
+		this.currentRate = rate;
+		this.currentMagnitude = Rational.ZERO;
 		tree = new DefaultUndirectedGraph<Node, DefaultEdge>(DefaultEdge.class);
 		root = new Node(this);
 		tree.addVertex(root);
 		nextId = 2;
 	}
 
-	public void evolve(Rational amount) {
-		evolve(this.rate, amount);
+	public Tree evolve(Rational amount) {
+		return evolve(this.currentRate, amount);
 	}
 	
-	public void evolve(Structor structor) {
-		evolve(structor.getRate(), structor.getMagnitude());
+	public Tree evolve(Structor structor) {
+		return evolve(structor.getRate(), structor.getMagnitude());
 	}
 	
-	public void evolve(Rational newRate, Rational amount){
+	public Tree evolve(Rational newRate, Rational amount){
 		
-		if ( !rate.equals(newRate) )
+		if ( !currentRate.equals(newRate) )
 			updateTree(newRate);
 		
+		this.currentMagnitude = amount;
 		SortedSet<Node> transNodes = new TreeSet<Node>();
 		Rational amountRemainder = amount;
+		List<Node> nodesForRemoval = new ArrayList<Node>();
+		List<Node> createdNodes = new ArrayList<Node>();
 		Rational updateAmount;
 		Rational transAmount;
 		
 		do {
 			transNodes = getTransitionNodes(amountRemainder);
 
-			if ( updateAmount(transNodes.first()).getAbsoluteValue().lessThan(amountRemainder.getAbsoluteValue()) ) {
+			if ( !transNodes.isEmpty() && updateAmount(transNodes.first(), amount).getAbsoluteValue().lessThanOrEqual(amountRemainder.getAbsoluteValue()) ) {
 				
-				// update nodes and add/remove nodes at transitions
+				// update nodes and add nodes at growth transitions
 				Node firstTransNode = transNodes.first();
-				transAmount = ( amount.greaterThan(Rational.ZERO) ) ? firstTransNode.getPosTransitionAmount() : firstTransNode.getNegTransitionAmount();
+				transAmount = isGrowing() ? firstTransNode.getPosTransitionAmount() : firstTransNode.getNegTransitionAmount();
 				updateAmount = updateNodes(transAmount);
 				
-				// Handle node addition/removal
+				// Handle transition node addition/removal
 				for ( Node transNode : transNodes ) {
-						
-					assert transNode.getWeight().getFractionalPart().equals(Rational.ZERO) : " New parent node weight must be an integer multiple";
 					
-					// check if transNode is a leaf node and remove it if zero weight, else add new node
-					if ( tree.edgesOf(transNode).size() == 1 && transNode.getWeight().equals(Rational.ZERO) ) {
-						removeLeafNode(transNode);
-					} else 
-						addLeafNode(transNode);
-				} 
+					assert transNode.getWeight().getFractionalPart().equals(Rational.ZERO) : " New parent node weight must be an integer multiple";
 				
+					if ( !transNode.isRoot() && tree.edgesOf(transNode).size() == 1 && transNode.getWeight().equals(Rational.ZERO) ) {
+						removeNode(transNode);
+					} else {
+						createdNodes.add(addNode(transNode));
+					}
+				}	
+				
+				// Mark (non-newly created) nodes for removal (if any have reached zero simultaneously)
+				for (Node node : tree.vertexSet()) {
+					if ( !createdNodes.contains(node) && !node.isRoot() && tree.edgesOf(node).size() == 1 && node.getWeight().equals(Rational.ZERO) ) {
+						nodesForRemoval.add(node);
+					}
+				}
+				
+			// Not enough remaining amount to reach a transition
 			} else {
 				
-				// Not enough remaining amount to reach a transition
 				// Split amount between nodes, proportionate to growth rate
 				Rational unitAmount = amountRemainder.multiply(getRateSum().getReciprocal());
 				updateAmount = updateNodes(unitAmount);
@@ -76,9 +90,23 @@ public class Tree {
 				assert updateAmount.equals(amountRemainder) : " Non-transition update amount should be the same as the full amount"; 
 			}
 			
+			// Remove zero leaf nodes
+			for (Node node : nodesForRemoval) {
+				removeNode(node);
+			}
+			nodesForRemoval.clear();
+			createdNodes.clear();
 			amountRemainder = amountRemainder.minus(updateAmount);
 				
 		} while ( !amountRemainder.equals(Rational.ZERO) );
+		
+		// finally remove any remaining zero leaf nodes
+		for (Node node : tree.vertexSet()) {
+			if ( !node.isRoot() && tree.edgesOf(node).size() == 1 && node.getWeight().equals(Rational.ZERO) ) 
+				removeNode(node);
+		}
+		
+		return this;
 	}
 	
 	// Calculate transition amounts
@@ -137,14 +165,15 @@ public class Tree {
 	}
 	
 	// Calculates total tree update amount needed for reaching transition
-	private Rational updateAmount(Node transNode) {
+	private Rational updateAmount(Node transNode, Rational amount) {
 		
 		Rational updateAmount = Rational.ZERO;
-		Rational scalingFactor = transNode.getWeight().multiply(transNode.getRate().getReciprocal());
+		Rational transNodeAmount = (amount.greaterThan(Rational.ZERO)) ? transNode.getPosTransitionAmount() : transNode.getNegTransitionAmount();
+
 		for (Node node : tree.vertexSet()) {
 			// add scaled amounts
 			Rational rate = node.getRate();
-			Rational increment = rate.multiply(scalingFactor);
+			Rational increment = rate.multiply(transNodeAmount);
 			updateAmount = updateAmount.add(increment);
 		}
 		return updateAmount;
@@ -159,18 +188,24 @@ public class Tree {
 		return rateSum;
 	}
 	
-	private void addLeafNode(Node parent) {
+	private Node addNode(Node parent) {
 		Node child = new Node(this, parent);
 		tree.addVertex(child);
 		tree.addEdge(parent, child);
 		nextId++;
+		System.out.println("add: " + child.getId() + " " + child.getDepth() + " " + parent.getId());
+		return child;
 	}
 	
-	private void removeLeafNode(Node node) {
+	private void removeNode(Node node) {
+		
 		tree.removeVertex(node);
+		System.out.println("rem: " + node.getId() + " " + node.getDepth() + " " + node.getParent().getId());
 	}
 	
 	private void updateTree(Rational newRate) {
+		
+		this.currentRate = newRate;
 		
 		//Update the rates and transition amounts
 		for (Node node : tree.vertexSet()) {
@@ -197,12 +232,19 @@ public class Tree {
 		}
 	}
 	
+	private boolean isGrowing() {
+		boolean result = false;
+		if ( this.currentMagnitude.greaterThan(Rational.ZERO) )
+			result = true;
+		return result;
+	}
+	
 	public int getNextId() {
 		return this.nextId;
 	}
 	
-	public Rational getRate() {
-		return this.rate;
+	public Rational getCurrentRate() {
+		return this.currentRate;
 	}
 	
 	public Graph<Node, DefaultEdge> getTree() {

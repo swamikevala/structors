@@ -8,7 +8,7 @@ public class Structor {
 		this.rate = rate;
 		this.magnitude = magnitude;
 		tree = new Tree(rate);
-		tree.evolve(magnitude);
+		//tree.evolve(magnitude);
 	}
 	
 	public String toString() {

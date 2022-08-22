@@ -178,7 +178,13 @@ public class Rational implements Comparable<Rational>{
 	}
 	
 	public String toString() {
-		return numerator + "/" + denominator;
+		long displayNum = numerator;
+		long displayDen = denominator;
+		if (numerator < 0 && denominator < 0) {
+			displayNum = -numerator;
+			displayDen = -denominator;
+		}
+		return displayNum + "/" + displayDen;
 	}
 	
 	@Override
